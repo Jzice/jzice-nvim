@@ -1,0 +1,2 @@
+
+require('jzice-nvim').setup()
