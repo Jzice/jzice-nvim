@@ -4,7 +4,7 @@
 
 Neovim lua config in one file.
 
-![pic1](./img/pic1.png)
+![pic1](img/pic1.png)
 
 ## Require
 
@@ -27,10 +27,12 @@ Neovim lua config in one file.
 
 ## Usage
 
+```
 1. `curl 'https://raw.githubusercontent.com/jzice/jzice-nvim/main/lua/jzice-nvim/init.lua' > ~/.config/nvim/init.lua`
 2. start nvim first to install packer auto
 3. restart nvim +PackerSync
 4. restart nvim
+```
 
 ## config
 
@@ -38,7 +40,7 @@ Neovim lua config in one file.
 require('jzice-nvim').setup({
     theme = 'molokai',
     settings = {
-      ...
+      --...
     },
     packer = {
         git = {
@@ -47,7 +49,6 @@ require('jzice-nvim').setup({
     },
 })
 ```
-
 
 ## Plugin list
 
@@ -133,4 +134,3 @@ require('jzice-nvim').setup({
 * vimwiki
 * vista.vim 
 * which-key.nvim
-

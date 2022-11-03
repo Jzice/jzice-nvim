@@ -10,10 +10,17 @@ local M = {}
 local fn = vim.fn
 local cmd = vim.cmd
 local g = vim.g
+local opt = vim.opt
+local api = vim.api
 
 -- options --
 local options = {
     theme = 'molokai',
+    opts = {
+        foldlevel = 4,
+        foldmethod = "expr",
+        foldexpr = "nvim_treesitter#foldexpr()",
+    },
     settings = {
         mapleader = ',',            -- <leader>为,
         so = 999,                    -- 滚动居中
@@ -24,12 +31,6 @@ local options = {
 
         cursorhold_updatetime = 100,
         startify_session_dir = '~/.vim/session',
-
-        -- leetcode --
-        leetcode_china = 1,
-        leetcode_username = "<leetcode_username>",
-        leetcode_solution_filetype = "python3",
-        leetcode_browser = "chrome",
 
         -- any-jump --
         any_jump_disable_default_keybindings = 0,              --默认快捷键
@@ -56,7 +57,7 @@ local options = {
         undotree_WindowLayout = 3,  -- right panel
 
         -- vim-rooter
-        rooter_patterns = {'.git', 'node_modules', 'Cargo.toml', '.svn', 'Makefile', 'README.md'},
+        rooter_patterns = {'.git', 'Makefile', 'node_modules', '*.sln', 'build/env.sh', '.svn', 'go.mod', 'pom.xml' },
         rooter_change_directory_for_non_project_files = 'current',
 
         -- git-blame.nvim --
@@ -73,19 +74,24 @@ local options = {
         limelight_default_coefficient = 0.7,
         limelight_paragraph_span = 1,
 
-        -- vim-rest-client --
-        vrc_trigger = '<C-i>',
-        vrc_elasticsearch_support = 1,
-        vrc_output_buffer_name = '__VRC_OUTPUT.json',
-        vrc_connect_timeout = 10,
-        vrc_split_request_body = 0,
-        vrc_auto_format_uhex = 1,          --"汉字,
-
         -- floaterm --
+        floaterm_height = 0.9,
+        floaterm_width = 0.9,
         floaterm_keymap_toggle = '<Leader>tt',         -- 切换浮动终端
         floaterm_keymap_new = '<Leader>tc',            -- 新建浮动终端
         floaterm_keymap_prev = '<Leader>tp',           -- 前一个终端窗口
         floaterm_keymap_next = '<Leader>tn',           -- 后一个终端窗口
+
+        -- vim-rest-console --
+        vrc_trigger = '<C-i>', --
+        vrc_debug = 0,
+        vrc_show_command = 0,
+        vrc_elasticsearch_support = 1, --
+        vrc_output_buffer_name = '__VRC_OUTPUT.<filetype>',
+        vrc_split_request_body = 1 ,
+        vrc_auto_format_response_enabled = 1,
+        vrc_auto_format_uhex = 1,           --"汉字
+        vrc_curl_opts = { ['--connect-timeout'] = 10,},
     },
 
     packer = {
@@ -113,20 +119,29 @@ local function basic_settings()
     for k, v in pairs(options.settings) do
         g[k] = v
     end
-    -- vim.o.termguicolors = false
 
-    -- cmd 'autocmd FileType startify normal zR'
+    --- options.opts ---
+    for k, v in pairs(options.opts) do
+        opt[k] = v
+    end
+
     cmd('colorscheme '..options.theme)
-
     cmd [[
+        autocmd FileType rust,cpp,java,go set fdm=expr 
+        autocmd FileType python set fdm=indent
+        autocmd FileType * set foldlevel=4
+        autocmd FileType c,cpp,python,go,rust,java AnyFoldActivate
+        autocmd FileType startify normal zR
+        autocmd BufReadPost,FileReadPost * normal zR
+        autocmd BufWinEnter * let b:nrrw_aucmd_create = "let w:lastfdm = getwinvar(winnr('#'), 'lastfdm')"
+        autocmd CursorHold,CursorHoldI * lua require"nvim-lightbulb".update_lightbulb()
         augroup Limelight
             autocmd! User GoyoEnter Limelight
             autocmd! User GoyoLeave Limelight!
         augroup END
+        autocmd BufEnter *__VRC_OUTPUT.*   vertical resize 200
+        autocmd BufLeave *__VRC_OUTPUT.*   vertical resize 30
     ]]
-
-    -- nvim-lightbulb --
-    cmd 'autocmd CursorHold,CursorHoldI * lua require"nvim-lightbulb".update_lightbulb() '
 end
 
 --- dap settings ---
@@ -137,7 +152,7 @@ local function dap_setup()
 
     dap_virtual_text.setup()
 
-    dapui.setup({ sidebar = { position = "right" } })
+    dapui.setup()
     dap.listeners.after.event_initialized["dapui_config"] = function()
         dapui.open()
     end
@@ -160,26 +175,29 @@ local function dap_setup()
         dap.configurations[dap_name] = dap_options.configurations
     end
 
-    vim.fn.sign_define("DapBreakpoint", {text = "⊚", texthl = "TodoFgFIX", linehl = "", numhl = ""})
+    fn.sign_define("DapBreakpoint", {text = "⊚", texthl = "TodoFgFIX", linehl = "", numhl = ""})
 
  end
 
 -- lsp config --
 local function lsp_setup()
-    local capabilities = require('cmp_nvim_lsp').update_capabilities(vim.lsp.protocol.make_client_capabilities())
+    local capabilities = require('cmp_nvim_lsp').default_capabilities(vim.lsp.protocol.make_client_capabilities())
 
     local lsp_installer = require("nvim-lsp-installer")
     lsp_installer.setup {
-        ensure_installed = {'sumneko_lua', 'gopls', 'rust_analyzer', 'clangd', 'vimls', 'bashls'},
+        ensure_installed = {'sumneko_lua', 'zeta_note', 'gopls', 'rust_analyzer', 'clangd', 'vimls', 'bashls'},
         automatic_installation = true,
     }
     local lsp_servers = require('nvim-lsp-installer.servers').get_installed_server_names()
     local lsp_cfg = require('lspconfig')
     local lsp_signature = require('lsp_signature')
+    local lsp_basics = require('lsp_basics')
     for _, lsp_name in pairs(lsp_servers) do
         lsp_cfg[lsp_name].setup{
             on_attach = function(client, bufnr)
                 lsp_signature.on_attach(client, bufnr)
+                lsp_basics.make_lsp_commands(client, bufnr)
+                lsp_basics.make_lsp_mappings(client, bufnr)
             end,
             capabilities = capabilities,
             flags = {
@@ -187,6 +205,10 @@ local function lsp_setup()
             }
         }
     end
+
+    -- cmd [[
+    --     set tagfunc=v:lua.vim.lsp.tagfunc
+    -- ]]
 end
 
 local function nvim_cmp_setup()
@@ -200,7 +222,7 @@ local function nvim_cmp_setup()
         local line, col = unpack(vim.api.nvim_win_get_cursor(0))
         return col ~= 0 and vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
     end
-    cmp.event:on('confirm_done', cmp_autopairs.on_confirm_done({  map_char = { tex = '' } }))
+    cmp.event:on('confirm_done', cmp_autopairs.on_confirm_done({map_char = {tex = ''}}))
     cmp.setup({
         snippet = {
             expand = function(args)
@@ -282,17 +304,17 @@ end
 
 -- register plugin --
 local registered_plugins = {}
-local function register_plugin(plugin, config)
+local function register_plugin(name, config)
     config = config or {}
-    table.insert(registered_plugins, {['name']=plugin, ['config']=config})
+    table.insert(registered_plugins, {name=name, config=config})
 end
 
 -- setup registered_plugins
 local function setup_plugins()
     for _, plugin in pairs(registered_plugins) do
-        local ok, m = pcall(require, plugin['name'])
+        local ok, m = pcall(require, plugin.name)
         if not ok then
-            vim.notify('Setup '..plugin['name']..' failed', 'error')
+            vim.notify('Setup '..plugin.name..' failed', 'error')
         else
             m.setup()
         end
@@ -342,11 +364,16 @@ local function plugin_config()
         }
     })
 
+    require("indent_blankline").setup {
+        show_current_context = true,
+        show_current_context_start = true,
+    }
+
     -- telescope config --
     local telescope_actions = require("telescope.actions")
     require("telescope").setup{
         extensions = {
-            ["ui-select"] = {
+            ['ui-select'] = {
                 require("telescope.themes").get_dropdown {
                 },
             },
@@ -358,16 +385,17 @@ local function plugin_config()
                     ["<C-k>"] = telescope_actions.move_selection_previous,
                 },
             },
-        }
+        },
     }
     require('telescope').load_extension('ui-select')
     require('telescope').load_extension('lazygit')
+    require('telescope').load_extension('neoclip')
 
     require('lspsaga').init_lsp_saga()
 
     -- nvim.treesitter --
     require('nvim-treesitter.configs').setup{
-        ensure_installed = { 'org', 'markdown', 'rst', "go", "lua", "toml", "yaml", "json", "bash", "cpp", "python", "rust", "vim"},
+        ensure_installed = { 'org', 'markdown', 'c', 'rst', "go", "lua", "toml", "yaml", "http", "json", "bash", "cpp", "python", "rust", "vim"},
         sync_install = false,
         ignore_install = { "javascript" },
         highlight = {
@@ -381,6 +409,10 @@ local function plugin_config()
             max_file_lines = nil, -- Do not enable for files with more than n lines, int
         }
     }
+
+    require("project_nvim").setup({
+        require('telescope').load_extension('projects')
+    })
 
     require("lsp_signature").setup({
         bind = true,
@@ -449,38 +481,44 @@ local function keymap_config()
     local silent_opts = { noremap= true,silent=true}
 
     -- basic --
-    keymap('n', '<F2>', ':NvimTreeToggle<CR>', silent_opts)         -- 切换文件浏览
-    keymap('n', '<F3>', ':SymbolsOutline<CR>', silent_opts)         -- 切换符号大纲
-    keymap('n', '<F4>', ':UndotreeToggle<CR>', silent_opts)         -- 操作历史
+    keymap('n', '<F2>', ':NvimTreeToggle<CR>', silent_opts)             -- <F2>: 切换文件浏览
+    keymap('n', '<F3>', ':Vista!!<CR>', silent_opts)                    -- <F3>: 切换符号大纲
+    keymap('n', '<F4>', ':UndotreeToggle<CR>', silent_opts)             -- <F4>: 操作历史
 
-    keymap('n', '<leader>k', ':WhichKey<CR>', silent_opts)             -- WhichKey
-    keymap('n', '<leader><space>', ':FixWhitespace<CR>', silent_opts)   -- 清除尾部空格
+    keymap('n', '<leader>k', ':WhichKey<CR>', silent_opts)              -- <leader>k: WhichKey
+    keymap('n', '<leader><space>', ':FixWhitespace<CR>', silent_opts)   -- <leader><space>: 清除尾部空格
+
+    keymap('n', '<leader>p', ':lua require("nabla").popup()<CR>', silent_opts)   -- <leader>p: 显示数学公式弹窗
 
     -- telescope --
-    keymap('n', '<C-p>', ':Telescope find_files<CR>', silent_opts)                      -- 查找文件
-    keymap('n', '<C-]>', ':Telescope lsp_definitions<CR>', silent_opts)                 -- 跳转到定义
-    keymap('n', '<leader>gr', ':Telescope lsp_references<CR>', silent_opts)             -- 跳转到引用
-    keymap('n', '<leader>gi', ':Telescope lsp_implementations<CR>', silent_opts)        -- 跳转到实现
-    keymap('n', '<leader>fw', ':Telescope lsp_workspace_symbols theme=dropdown<CR>', silent_opts)  --查找workspace symbols
-    keymap('n', '<leader>ff', ':Telescope live_grep<CR>', silent_opts)                  -- 查找输入单词
-    keymap('n', '<leader>fg', ':Telescope grep_string<CR>', silent_opts)                -- 查找光标下单词
-    keymap('n', '<leader>fb', ':Telescope buffers theme=dropdown<CR>', silent_opts)     -- 查找buffer
-    keymap('n', '<leader>fc', ':Telescope command_history theme=dropdown<CR>', silent_opts)    -- 查找命令
-    keymap('n', '<leader>fC', ':Telescope commands theme=dropdown<CR>', silent_opts)    -- 查找命令
+    keymap('n', '<C-p>', ':Telescope find_files<CR>', silent_opts)                      -- <ctrl>p: 查找文件
+    keymap('n', '<leader>gd', ':Telescope lsp_definitions<CR>', silent_opts)            -- <leader>gd: 跳转到定义
+    keymap('n', '<leader>gr', ':Telescope lsp_references<CR>', silent_opts)             -- <leader>gr: 跳转到引用
+    keymap('n', '<leader>gi', ':Telescope lsp_implementations<CR>', silent_opts)        -- <leader>gi: 跳转到实现
+    keymap('n', '<leader>fs', ':Telescope lsp_workspace_symbols theme=dropdown<CR>', silent_opts)  -- <leader>fs: 查找workspace symbols
+    keymap('n', '<leader>fW', ':Telescope live_grep<CR>', silent_opts)                  -- <leader>fW: 查找输入单词
+    keymap('n', '<leader>fw', ':Telescope grep_string<CR>', silent_opts)                -- <leader>fw: 查找光标下单词
+    keymap('n', '<leader>sb', ':Telescope buffers theme=dropdown<CR>', silent_opts)     -- <leader>sb: 选择buffer
+    keymap('n', '<leader>sh', ':Telescope command_history theme=dropdown<CR>', silent_opts)     -- <leader>sh: 切换命令
+    keymap('n', '<leader>st', ':Telescope commands theme=dropdown<CR>', silent_opts)            -- <leader>: 查找命令
 
     -- anyjump --
-    keymap('n', '<leader>gj', ':AnyJump<CR>', silent_opts)                              -- anyjump grep 跳转
-    keymap('v', '<leader>gj', ':AnyJumpVisual<CR>', silent_opts)                        -- 跳转
+    keymap('n', '<leader>gj', ':AnyJump<CR>', silent_opts)                              -- <leader>gj: 跳转
+    keymap('v', '<leader>gj', ':AnyJumpVisual<CR>', silent_opts)                        -- <leader>gj: 跳转
     keymap('n', '<leader>gb', ':AnyJumpBack<CR>', silent_opts)
     keymap('n', '<leader>gl', ':AnyJumpLastResult<CR>s', silent_opts)
 
     -- lspsaga --
     keymap('n', 'K', ':Lspsaga hover_doc<CR>', silent_opts)                             -- 显示文档
+    keymap('n', '<C-f>', "<cmd>lua require('lspsaga.action').smart_scroll_with_saga(1)<CR>", silent_opts)                             -- 显示文档
+    keymap('n', '<C-b>', "<cmd>lua require('lspsaga.action').smart_scroll_with_saga(-1)<CR>", silent_opts)                             -- 显示文档
     keymap('n', '<leader>rn', ':Lspsaga rename<CR>', silent_opts)                       -- 重命名
     keymap('n', '<leader>fl', ':Lspsaga lsp_finder<CR>', silent_opts)                   -- lsp 查找
     keymap('n', '<leader>fi', ':Lspsaga implement<CR>', silent_opts)                    -- 查找实现
-    keymap('n', '<leader>fd', ':Lspsaga preview_definition<CR>', silent_opts)
-    keymap('n', '<leader>fh', ':Lspsaga signature_help<CR>', silent_opts)
+    keymap('n', '<leader>fd', ':Lspsaga preview_definition<CR>', silent_opts)           -- 查看
+    keymap('n', '<leader>fh', ':Lspsaga signature_help<CR>', silent_opts)               -- 查看签名
+    keymap('n', '<leader>ca', ':Lspsaga code_action<CR>', silent_opts)                  -- code_action
+    keymap('v', '<leader>ca', ':<C-U>Lspsaga range_code_action<CR>', silent_opts)       -- range_code_action
 
     -- hop --
     keymap('n', 'ff', "<cmd>HopWord<CR>", silent_opts)        -- 跳转到word, ff
@@ -521,6 +559,15 @@ local function keymap_config()
     keymap('n', '<leader>dr', "<cmd>lua require'dap'.run_last()<CR>", silent_opts) -- 重启调试
     keymap('n', '<leader>dc', "<cmd>lua require'dap'.close()<CR><cmd>lua require'dap.repl'.close()<CR><cmd>lua require'dapui'.close()<CR><cmd>DapVirtualTextForceRefresh<CR>", silent_opts) -- 退出调试（关闭调试，关闭 repl，关闭 ui，清除内联文本）
 
+    -- nvim-picgo
+    keymap('n', '<leader>uc', ":UploadClipboard<CR>", silent_opts) -- 上传剪贴板图片
+    keymap('n', '<leader>ui', ":UploadImagefile<CR>", silent_opts) -- 上传图片文件
+
+    -- tmux
+    keymap('n', 'C-h', "<cmd>lua require('tmux').move_left()<CR>", silent_opts)
+    keymap('n', 'C-j', "<cmd>lua require('tmux').move_down()<CR>", silent_opts)
+    keymap('n', 'C-k', "<cmd>lua require('tmux').move_up()<CR>", silent_opts)
+    keymap('n', 'C-l', "<cmd>lua require('tmux').move_right()<CR>", silent_opts)
 end
 
 --- setup ---
@@ -532,56 +579,62 @@ function M.setup(opts)
             git = { default_url_format = options.packer.git.default_url_format },
             display = {
                 open_fn = function()
-                    return require("packer.util").float({ border = 'single' })
+                    return require("packer.util").float({ border = 'double' })
                 end
             },
         },
         function()
             --- packer ---
-            use {'wbthomason/packer.nvim' }
+            use {'wbthomason/packer.nvim'}
 
             --- basic setting --
             use {
-                'ZhuZhengyi/vim-colorschemes',      -- theme
-                'ZhuZhengyi/vim-better-default',    -- basic default
-            }
+                {'ZhuZhengyi/vim-colorschemes'},      -- theme
+                {'ZhuZhengyi/vim-better-default'},    -- basic default
 
             --- ui --
-            use {
-                {'airblade/vim-rooter'},                            -- 切换project 目录
-                {'antoinemadec/FixCursorHold.nvim'},                -- fix cursor perferm bug
                 {'mhinz/vim-startify'},                                 -- 个性化启动画面
+                {'airblade/vim-rooter'},                                -- 切换project 目录
+                {'tribela/vim-transparent'},                            -- transparent bg
+                {'antoinemadec/FixCursorHold.nvim'},                    -- fix cursor perferm bug
                 {'lukas-reineke/indent-blankline.nvim'},                -- 缩进对齐线
                 {'p00f/nvim-ts-rainbow'},                               -- rainbow
+                {'luochen1990/rainbow'},                                --rainbow
+                {"nathom/tmux.nvim"},
                 {'simrat39/symbols-outline.nvim' },                     --符号大纲
                 {'liuchengxu/vista.vim', opt=true, cmd={'Vista', 'Vista!!'}},     -- 大纲列表
                 {'nvim-lualine/lualine.nvim', requires = {'kyazdani42/nvim-web-devicons'}, register_plugin('lualine')},  -- 状态栏
                 {'kyazdani42/nvim-tree.lua', requires = {'kyazdani42/nvim-web-devicons'}}, -- file explorer
+                {'ahmedkhalf/project.nvim', },
                 {"akinsho/bufferline.nvim", requires = {"famiu/bufdelete.nvim" }}, --buffer
                 {"lewis6991/gitsigns.nvim", requires = {"nvim-lua/plenary.nvim" }, register_plugin('gitsigns') },
-                {"rcarriga/nvim-notify" },                               -- 通知
-                {'Jzice/nvim-lsp-notify', requires={'rcarriga/nvim-notify'}, register_plugin('nvim-lsp-notify') },           -- lsp notify
-            }
+                {'j-hui/fidget.nvim', register_plugin('fidget')},
+                {'Jzice/nvim-notify'},                               -- 通知
+                -- {'camspiers/lens.vim', requires={'camspiers/animate.vim'}},
+                {'zhaocai/GoldenView.Vim'},     -- "分割窗口优化
+                {'junegunn/goyo.vim', requires={'junegunn/limelight.vim'}, cmd={'Goyo'}},    -- "专注模式: Goyo
+                {'amix/vim-zenroom2', requires={'junegunn/goyo.vim'}},          -- "ia writer
 
             --- lsp ---
-            use {
                 'neovim/nvim-lspconfig',            -- lsp配置
                 'williamboman/nvim-lsp-installer',  -- lsp installer
                 'onsails/lspkind.nvim',             -- lsp图标
+                'folke/lsp-colors.nvim',            -- lsp默认color
+                'nvim-lua/lsp_extensions.nvim',     -- lsp extensions 
+                'nanotee/nvim-lsp-basics',          -- lsp basic config
                 'nvim-treesitter/nvim-treesitter',  -- lsp语法高亮
                 'kosayoda/nvim-lightbulb',          -- "灯泡提示
                 'ray-x/lsp_signature.nvim',         -- lsp签名
-
                 'tami5/lspsaga.nvim',               -- lsp 显示
                 'pechorin/any-jump.vim',            -- any jump
 
+                {'m-demare/hlargs.nvim', requires={'nvim-treesitter/nvim-treesitter'}, register_plugin('hlargs')},
+                {'rmagatti/goto-preview', config = function() require('goto-preview').setup() end },        -- goto preview
                 {'nvim-telescope/telescope.nvim', requires = {'nvim-lua/plenary.nvim'} },                   -- 查找()
-                {'nvim-telescope/telescope-symbols.nvim', requires = {'nvim-telescope/telescope.nvim'}, },  --
+                {'nvim-telescope/telescope-symbols.nvim', requires = {'nvim-telescope/telescope.nvim'}},    --
                 {'nvim-telescope/telescope-ui-select.nvim', requires = {'nvim-telescope/telescope.nvim'}},
-            }
 
             --- complete ---
-            use {
                 -- nvim-cmp --
                 'hrsh7th/nvim-cmp',                     -- nvim自动补全
 
@@ -601,36 +654,34 @@ function M.setup(opts)
                 'hrsh7th/vim-vsnip',                    -- vs snip
                 'rafamadriz/friendly-snippets',         -- friendly snip
 
-                'mfussenegger/nvim-jdtls',
-                {'simrat39/rust-tools.nvim', register_plugin('rust-tools')},
-            }
+                {'mfussenegger/nvim-jdtls',},         -- java
+                {'ray-x/go.nvim', register_plugin('go')},                      -- go tools
+                {'simrat39/rust-tools.nvim', requires={'mattn/webapi-vim'}, register_plugin('rust-tools')},  -- rust
 
             --- tools ---
-            use {
+                {'Jzice/vim-rest-console'},         -- "curl工具，<Ctrl-i>
                 {'kenn7/vim-arsync', cmd = {'ARSyncUp', 'ARSyncDown', 'ARSyncUpDelete'} },  -- remote rsync
                 {'nvim-orgmode/orgmode' },          -- orgmode
-                {'voldikss/vim-floaterm',},         -- "浮动终端
                 {'hrsh7th/vim-eft', },              -- Faster jump with j,k
+                {'voldikss/vim-floaterm',},         -- "浮动终端
+                {'windwp/vim-floaterm-repl', requires={'voldikss/vim-floaterm'}}, --" floaterm repl
+                {'NTBBloodbath/rest.nvim', requires = { "nvim-lua/plenary.nvim" },},         -- rest client
 
+                {'AckslD/nvim-neoclip.lua', requires={'nvim-telescope/telescope.nvim'}, register_plugin('neoclip')},
                 {'tpope/vim-fugitive'} ,            -- git 增强
                 {'f-person/git-blame.nvim'},        -- git blame
                 {'kdheepak/lazygit.nvim'},          -- lazygit
                 {'mattn/gist-vim'},                 -- gist
                 {'mbbill/undotree'},                -- undo列表, :UndoTree
-
-                {'zhaocai/GoldenView.Vim'},     -- "分割窗口优化
-                {'junegunn/goyo.vim', requires={'junegunn/limelight.vim'}, cmd={'Goyo'}},    -- "专注模式: Goyo
-                {'amix/vim-zenroom2', requires={'junegunn/goyo.vim'}},          -- "ia writer
-            }
+                {'askfiy/nvim-picgo', run='npm install picgo -g', register_plugin('nvim-picgo')},  -- picgo
 
             -- - others ---
-            use {
                 {'takac/vim-hardtime'},             -- 增强jk
                 {'junegunn/vim-easy-align' },       -- 快速对齐
                 {'terryma/vim-expand-region'},      -- "区域选择, v/V改变选取大小
                 {'sbdchd/neoformat'},               -- "代码格式化 :Neoformat
                 {"numToStr/Comment.nvim", requires = {"JoosepAlviste/nvim-ts-context-commentstring"} },
-                {'ianding1/leetcode.vim'},          -- "leetcode
+                {'8ooo8/vim-leetcode'},             -- "leetcode-cli"
                 {'chrisbra/NrrwRgn', },             --"选择部分区域编辑
                 {'voldikss/vim-translator'},        -- "翻译: <Leader>tw
                 {'tpope/vim-surround'},               -- "标签替换, cs'
@@ -646,21 +697,26 @@ function M.setup(opts)
                 -- {'norcalli/nvim-colorizer.lua', register_plugin('colorizer') },   -- 显示彩色
                 {'folke/which-key.nvim', register_plugin('which-key')},     -- 显示快捷键
                 {"folke/todo-comments.nvim", requires = {'nvim-lua/plenary.nvim'}, register_plugin('todo-comments') }, -- TODO: 列表
-                { 'bronson/vim-trailing-whitespace', },     -- "消除行尾空格, <CTRL+SPACE>
-                { 'Konfekt/FastFold', },                    -- "加速代码折叠
-                { 'pseewald/vim-anyfold', },                -- "代码折叠
-            }
+                {'bronson/vim-trailing-whitespace', },     -- "消除行尾空格, <CTRL+SPACE>
+                {'Konfekt/FastFold', },                    -- "加速代码折叠
+                {'pseewald/vim-anyfold', },                -- "代码折叠
+                {'anuvyklack/pretty-fold.nvim',
+                    requires = {'anuvyklack/nvim-keymap-amend'}, -- only for preview
+                    config = function()
+                        require('pretty-fold').setup()
+                        require('pretty-fold.preview').setup()
+                    end
+                },
 
             -- filetype --
-            use {
                 {'vimwiki/vimwiki' },              --{'for': ['vimwiki']}
+                -- {'cstrahan/vim-capnp'},            -- capnp
+                {'jbyuki/nabla.nvim'},             -- tex note
                 {'NoorWachid/VimVLanguage', ft = {'v', 'vlang'}},
                 {'saltstack/salt-vim', ft = {'sls', 'salt'}},
                 {'Glench/Vim-Jinja2-Syntax', ft = {'sls', 'jinja2', 'html'} },    --
-            }
 
             -- dap --
-            use {
                 {"mfussenegger/nvim-dap"},     -- debug adapters
                 {"theHamsta/nvim-dap-virtual-text", requires = { "mfussenegger/nvim-dap" }, },
                 {"rcarriga/nvim-dap-ui", requires={"mfussenegger/nvim-dap"}, },
