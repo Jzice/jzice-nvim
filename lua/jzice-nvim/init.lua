@@ -25,7 +25,7 @@ local options = {
 
         startify_session_dir = '~/.vim/session',
 
-        -- leetcode --
+        -- leetcodgit@github.com:Jzice/jzice-nvim.gite --
         leetcode_china = 1,
         leetcode_username = "zhengyi.zhu.hust@gmail.com",
         leetcode_solution_filetype = "python3",
@@ -100,7 +100,7 @@ local function packer_init()
     local packer_git_url = 'https://github.com/wbthomason/packer.nvim'
     local install_path = fn.stdpath('data')..'/site/pack/packer/start/packer.nvim'
     if fn.empty(fn.glob(install_path)) > 0 then
-          packer_bootstrap = fn.system({'git', 'clone', '--depth', '1', packer_git_url, install_path})
+          packer_bootstrap = fn.system({'git', 'clone', '--depth=1', packer_git_url, install_path})
     end
     cmd 'packadd packer.nvim'
 end
